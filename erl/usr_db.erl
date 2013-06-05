@@ -1,6 +1,6 @@
 -module(usr_db).
 -include("usr.hrl").
--export([create_tables/1, close_tables/0, add_usr/1, lookup_id/1,lookup_msisdn/1, update_usr/1, restore_backup/0]).
+-export([create_tables/1, close_tables/0, add_usr/1, lookup_id/1,lookup_msisdn/1, update_usr/1, restore_backup/0, delete_usr/2,delete_usr/1, delete_disabled/0]).
 
 create_tables(FileName) ->
     ets:new(usrRam, [named_table, {keypos, #usr.msisdn}]),
@@ -38,8 +38,7 @@ get_index(CustId) ->
 	[{CustId,PhoneNo}] -> {ok,PhoneNo};
 	[]                 -> {error,instance}
     end.
-	    
-	    
+	    	    
 restore_backup() ->	    
     Insert = fun(#usr{msisdn=PhoneNo,id=CustId} = Usr) ->
 		     ets:insert(usrIndex, {CustId, PhoneNo}),
@@ -47,3 +46,35 @@ restore_backup() ->
 		     continue
 	     end,
     dets:traverse(usrDisk,Insert).
+
+delete_disabled() ->
+    ets:safe_fixtable(usrRam, true),
+    catch loop_delete_disabled(ets:first(usrRam)),
+    ets:safe_fixtable(usrRam, false),
+    ok.
+
+loop_delete_disabled('$end_of_table') ->
+    ok;
+loop_delete_disabled(PhoneNo) ->
+    case ets:lookup(usrRam, PhoneNo) of
+	#usr{state=disabled, id=CustId} ->
+	    delete_usr(PhoneNo, CustId);
+	_  -> ok
+    end,
+    loop_delete_disabled(ets:next(usrRam, PhoneNo)).
+
+delete_usr(PhoneNo, CustId) ->
+    ets:delete(usrIndex, CustId),
+    ets:delete(usrRam, PhoneNo),
+    dets:delete(usrDisk, PhoneNo).
+
+delete_usr(CustId) ->
+    case get_index(CustId) of
+	{ok,PhoneNo} ->
+	    ets:delete(usrIndex, CustId),
+	    ets:delete(usrRam, PhoneNo),
+	    dets:delete(usrDisk, PhoneNo);
+	{error, instance} -> {error, instance}
+    end.				 
+ 
+	
